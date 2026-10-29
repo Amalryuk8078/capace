@@ -1,0 +1,6 @@
+-r requirements.txt
+fakeredis[lua]>=2.26
+freezegun>=1.5
+pre-commit>=4.0
+pytest-django>=4.9
+pytest>=8.3

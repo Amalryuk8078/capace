@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>Smart Task Board</title>
+  <style>
+    :root {
+      --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7280; --border: #e3e6eb;
+      --accent: #4f46e5; --accent-hover: #4338ca;
+      --low: #047857; --low-bg: #d1fae5; --medium: #b45309; --medium-bg: #fef3c7;
+      --high: #b91c1c; --high-bg: #fee2e2; --lock: #4338ca; --lock-bg: #e0e7ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+           font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
+    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px; }
+    h1 { margin: 0; font-size: 26px; }
+    .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+    .links a { color: var(--accent); font-size: 14px; margin-left: 12px; }
+
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 24px 0; }
+    .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; }
+    .stat span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .stat strong { font-size: 26px; font-variant-numeric: tabular-nums; }
+
+    form { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: end;
+           background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: #374151; }
+    input, select { font: inherit; padding: 8px 10px; border: 1px solid #cfd4dc; border-radius: 8px; background: #fff; }
+    input[type=number] { width: 120px; }
+    .field-error { color: var(--high); font-weight: 400; font-size: 12px; min-height: 0; }
+    button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer;
+             background: var(--accent); color: #fff; }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { background: #c7cad1; cursor: not-allowed; }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin: 28px 0 12px; gap: 12px; flex-wrap: wrap; }
+    .toolbar h2 { margin: 0; font-size: 18px; }
+    .toolbar select { padding: 6px 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+    .task { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+            display: flex; flex-direction: column; gap: 10px; }
+    .task.done, .task.expired { opacity: .65; }
+    .task-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+    .task-title { font-weight: 600; word-break: break-word; }
+    .badge { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+    .LOW { color: var(--low); background: var(--low-bg); }
+    .MEDIUM { color: var(--medium); background: var(--medium-bg); }
+    .HIGH { color: var(--high); background: var(--high-bg); }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 13px; }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { font-size: 12px; font-weight: 600; border-radius: 6px; padding: 3px 8px; background: #eef0f3;
+            font-variant-numeric: tabular-nums; }
+    .chip.urgent { color: var(--high); background: var(--high-bg); }
+    .chip.lock { color: var(--lock); background: var(--lock-bg); }
+    .task button { margin-top: auto; }
+    .empty, .error { padding: 32px; text-align: center; border: 1px dashed #cfd4dc; border-radius: 12px; color: var(--muted); }
+    .error { color: var(--high); border-color: #fca5a5; background: #fff5f5; }
+
+    #toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 10; max-width: calc(100% - 32px); }
+    .toast { width: 340px; max-width: 100%; border-radius: 10px; padding: 12px 14px; font-size: 14px;
+             box-shadow: 0 8px 24px rgba(0,0,0,.12); border: 1px solid; }
+    .toast.success { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+    .toast.failure { background: #fff1f2; border-color: #fecdd3; color: #9f1239; }
+    .toast code { display: block; margin-top: 4px; font-size: 12px; opacity: .7; }
+
+    @media (max-width: 720px) {
+      form { grid-template-columns: 1fr 1fr; }
+      form label:first-child, form button { grid-column: 1 / -1; }
+      input[type=number] { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Smart Task Board</h1>
+      <p class="subtitle">Every rule is enforced by the server. This page only displays the results.</p>
+    </div>
+    <nav class="links">
+      <a href="/api/docs/">Swagger</a>
+      <a href="/api/tasks/">Browsable API</a>
+    </nav>
+  </header>
+
+  <section class="summary" aria-label="Board summary">
+    <div class="stat"><span>Total</span><strong id="stat-total">–</strong></div>
+    <div class="stat"><span>Pending</span><strong id="stat-pending">–</strong></div>
+    <div class="stat"><span>Completed</span><strong id="stat-completed">–</strong></div>
+    <div class="stat"><span>Locked</span><strong id="stat-locked">–</strong></div>
+    <div class="stat"><span>Expired</span><strong id="stat-expired">–</strong></div>
+  </section>
+
+  <form id="create-form" novalidate>
+    <label>Title
+      <input name="title" maxlength="200" placeholder="What needs doing?" required>
+      <span class="field-error" data-error="title"></span>
+    </label>
+    <label>Priority
+      <select name="priority">
+        <option value="LOW">Low</option>
+        <option value="MEDIUM" selected>Medium</option>
+        <option value="HIGH">High</option>
+      </select>
+      <span class="field-error" data-error="priority"></span>
+    </label>
+    <label>Estimate (min)
+      <input name="estimated_time_minutes" type="number" min="1" max="1440" value="10">
+      <span class="field-error" data-error="estimated_time_minutes"></span>
+    </label>
+    <button type="submit">Add task</button>
+  </form>
+
+  <div class="toolbar">
+    <h2>Tasks <small id="count" style="color:var(--muted);font-weight:400"></small></h2>
+    <select id="filter" aria-label="Filter tasks">
+      <option value="all">All tasks</option>
+      <option value="pending">Pending</option>
+      <option value="completed">Completed</option>
+      <option value="locked">Locked</option>
+      <option value="expired">Expired</option>
+    </select>
+  </div>
+  <section id="tasks" class="grid" aria-live="polite"></section>
+</main>
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+  const API = "/api";
+  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+  let tasks = [];
+  let fetchedAt = Date.now();
+
+  async function api(path, options = {}) {
+    const response = await fetch(API + path, {
+      ...options,
+      headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken, Accept: "application/json" },
+    });
+    let body = null;
+    try { body = await response.json(); } catch { /* empty body */ }
+    return { ok: response.ok, status: response.status, body };
+  }
+
+  // Remaining seconds are computed by the server; count down from the moment we fetched them.
+  function remaining(seconds) {
+    return Math.max(0, Math.ceil(seconds - (Date.now() - fetchedAt) / 1000));
+  }
+
+  function formatSeconds(total) {
+    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+  }
+
+  function formatTime(iso) {
+    return iso ? new Date(iso).toLocaleString() : "–";
+  }
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value);
+    }
+    for (const child of children) node.append(child);  // text is inserted as text, never HTML
+    return node;
+  }
+
+  function toast(kind, message, hintCode) {
+    const node = el("div", { class: `toast ${kind}`, role: "status" }, message);
+    if (hintCode) node.append(el("code", {}, hintCode));
+    document.getElementById("toasts").append(node);
+    setTimeout(() => node.remove(), 6000);
+  }
+
+  function stateOf(task) {
+    if (task.status === "COMPLETED") return "completed";
+    const lockLeft = remaining(task.lock_remaining_seconds);
+    const deadlineLeft = remaining(task.time_remaining_seconds);
+    if (deadlineLeft === 0) return "expired";
+    if (lockLeft > 0) return "locked";
+    return "pending";
+  }
+
+  function renderTask(task) {
+    const state = stateOf(task);
+    const lockLeft = remaining(task.lock_remaining_seconds);
+    const deadlineLeft = remaining(task.time_remaining_seconds);
+    const labels = { pending: "Pending", completed: "Completed", locked: "Locked", expired: "Expired" };
+
+    const chips = el("div", { class: "chips" });
+    if (state === "completed") {
+      chips.append(el("span", { class: "chip" }, `Completed ${formatTime(task.completed_at)}`));
+    } else {
+      chips.append(el("span", { class: "chip" + (deadlineLeft > 0 && deadlineLeft < 60 ? " urgent" : "") },
+        deadlineLeft > 0 ? `Deadline in ${formatSeconds(deadlineLeft)}` : "Deadline passed"));
+      if (lockLeft > 0) chips.append(el("span", { class: "chip lock" }, `Unlocks in ${formatSeconds(lockLeft)}`));
+    }
+
+    const card = el("article", { class: `task ${state === "completed" ? "done" : state}` },
+      el("div", { class: "task-head" },
+        el("span", { class: "task-title" }, task.title),
+        el("span", { class: `badge ${task.priority}` }, task.priority)),
+      el("dl", {},
+        el("dt", {}, "Estimate"), el("dd", {}, `${task.estimated_time_minutes} min`),
+        el("dt", {}, "Created"), el("dd", {}, formatTime(task.created_at)),
+        el("dt", {}, "Deadline"), el("dd", {}, formatTime(task.deadline_at)),
+        el("dt", {}, "Status"), el("dd", {}, labels[state]),
+        el("dt", {}, "Failed attempts"), el("dd", {}, String(task.failure_count))),
+      chips);
+
+    if (state !== "completed") {
+      // The button is only a convenience; the server re-checks every rule.
+      const button = el("button", { type: "button", onclick: () => complete(task.id, button) }, "Complete");
+      button.disabled = state !== "pending";
+      card.append(button);
+    }
+    return card;
+  }
+
+  function render() {
+    const filter = document.getElementById("filter").value;
+    const visible = tasks.filter((task) => filter === "all" || stateOf(task) === filter);
+    const container = document.getElementById("tasks");
+    container.replaceChildren(...visible.map(renderTask));
+    if (!visible.length) {
+      container.replaceChildren(el("div", { class: "empty", style: "grid-column:1/-1" },
+        tasks.length ? "No tasks match this filter." : "No tasks yet. Add one above."));
+    }
+  }
+
+  async function loadTasks() {
+    const { ok, body } = await api("/tasks/");
+    if (!ok) {
+      document.getElementById("tasks").replaceChildren(
+        el("div", { class: "error", style: "grid-column:1/-1" }, "Could not load tasks. Is the backend running?"));
+      return;
+    }
+    tasks = body.results;
+    fetchedAt = Date.now();
+    document.getElementById("count").textContent =
+      body.count > tasks.length ? `(showing ${tasks.length} of ${body.count})` : `(${body.count})`;
+    render();
+  }
+
+  async function loadSummary() {
+    const { ok, body } = await api("/board/summary/");
+    if (!ok) return;
+    for (const key of ["total", "pending", "completed", "locked", "expired"]) {
+      document.getElementById(`stat-${key}`).textContent = body[key];
+    }
+  }
+
+  function refresh() {
+    return Promise.all([loadTasks(), loadSummary()]);
+  }
+
+  async function complete(id, button) {
+    button.disabled = true;
+    button.textContent = "Completing…";
+    const { ok, status, body } = await api(`/tasks/${id}/complete/`, { method: "POST" });
+    if (ok) toast("success", "Task completed.");
+    else if (status === 409) toast("failure", body.message, body.hint_code);
+    else toast("failure", (body && (body.message || body.detail)) || "Something went wrong.");
+    await refresh();
+  }
+
+  document.getElementById("create-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const button = form.querySelector("button");
+    form.querySelectorAll("[data-error]").forEach((node) => (node.textContent = ""));
+    button.disabled = true;
+
+    const payload = {
+      title: form.elements.title.value.trim(),
+      priority: form.elements.priority.value,
+      estimated_time_minutes: Number(form.elements.estimated_time_minutes.value),
+    };
+    const { ok, status, body } = await api("/tasks/", { method: "POST", body: JSON.stringify(payload) });
+    button.disabled = false;
+
+    if (ok) {
+      form.elements.title.value = "";
+      toast("success", body.is_locked ? "Task created, but it is resting for a while." : "Task created.");
+      await refresh();
+    } else if (status === 400) {
+      for (const [field, messages] of Object.entries(body)) {
+        const node = form.querySelector(`[data-error="${field}"]`);
+        if (node) node.textContent = messages[0];
+      }
+    } else {
+      toast("failure", (body && body.message) || "Could not create the task.");
+    }
+  });
+
+  document.getElementById("filter").addEventListener("change", render);
+
+  // Tick the countdowns every second and re-sync when a lock or deadline runs out.
+  let lastStates = "";
+  setInterval(() => {
+    const states = tasks.map(stateOf).join();
+    render();
+    if (lastStates && states !== lastStates) loadSummary();
+    lastStates = states;
+  }, 1000);
+  setInterval(refresh, 30000);
+
+  refresh();
+})();
+</script>
+</body>
+</html>
